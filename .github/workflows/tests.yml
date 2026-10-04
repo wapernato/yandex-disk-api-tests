@@ -1,0 +1,73 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Test suite
+        required: true
+        default: unit
+        type: choice
+        options: [unit, auth, live]
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - run: chmod +x mvnw
+      - run: ./mvnw -B -ntp test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-reports
+          path: target/surefire-reports/
+          retention-days: 7
+
+  auth:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'auth'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - run: chmod +x mvnw
+      - run: ./mvnw -B -ntp -Pauth verify
+
+  live:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'live'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+      YANDEX_DISK_TEST_ACCOUNT: ${{ vars.YANDEX_DISK_TEST_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - run: chmod +x mvnw
+      - name: Require dedicated test account
+        shell: bash
+        run: |
+          test -n "$YANDEX_DISK_TOKEN" || { echo 'Configure repository secret YANDEX_DISK_TOKEN'; exit 1; }
+          test "$YANDEX_DISK_TEST_ACCOUNT" = true || { echo 'Confirm dedicated account via repository variable YANDEX_DISK_TEST_ACCOUNT=true'; exit 1; }
+      - run: ./mvnw -B -ntp -Plive verify
